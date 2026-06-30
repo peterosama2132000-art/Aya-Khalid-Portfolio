@@ -973,6 +973,34 @@ export default function App() {
   const [selectedAdminPdfId, setSelectedAdminPdfId] = useState<string>('');
   const [selectedAdminPageNum, setSelectedAdminPageNum] = useState<number>(1);
 
+  // Synchronization with local storage & server persistence
+  const [hasLoadedFromServer, setHasLoadedFromServer] = useState<boolean>(false);
+
+  // Load from server on mount to ensure all users see the same updated content/uploaded picture
+  useEffect(() => {
+    const loadPortfolioData = async () => {
+      try {
+        const res = await fetch('/api/portfolio-data');
+        if (res.ok) {
+          const data = await res.json();
+          if (data && Object.keys(data).length > 0) {
+            if (data.caseStudies) setCaseStudies(data.caseStudies);
+            if (data.pdfCaseStudies) setPdfCaseStudies(data.pdfCaseStudies);
+            if (data.amiraSheetRows) setAmiraSheetRows(data.amiraSheetRows);
+            if (data.adminBio) setAdminBio(data.adminBio);
+            if (data.realWorkSection) setRealWorkSection(data.realWorkSection);
+            if (data.inquiries) setInquiries(data.inquiries);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load portfolio data from server", err);
+      } finally {
+        setHasLoadedFromServer(true);
+      }
+    };
+    loadPortfolioData();
+  }, []);
+
   // Synchronization with local storage
   useEffect(() => {
     localStorage.setItem('aya_case_studies', JSON.stringify(caseStudies));
@@ -997,6 +1025,21 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('aya_inquiries', JSON.stringify(inquiries));
   }, [inquiries]);
+
+  // Helper to save specific keys explicitly to server (only when admin triggers it)
+  const savePortfolioDataToServer = async (partialData: any) => {
+    try {
+      await fetch('/api/portfolio-data', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(partialData),
+      });
+    } catch (err) {
+      console.error("Failed to save portfolio data to server", err);
+    }
+  };
 
   // Selected edit item states for form binding
   const [editBioForm, setEditBioForm] = useState<any>(null);
@@ -1090,13 +1133,17 @@ export default function App() {
         { labelAr: 'معدل الحسم', labelEn: 'Direct Close Rate', value: '4.2x' }
       ]
     };
-    setCaseStudies(prev => [...prev, newCase]);
+    const updated = [...caseStudies, newCase];
+    setCaseStudies(updated);
+    savePortfolioDataToServer({ caseStudies: updated });
     setSelectedAdminCaseId(newId);
   };
 
   const handleSaveCaseStudy = () => {
     if (!editCaseForm) return;
-    setCaseStudies(prev => prev.map(c => c.id === editCaseForm.id ? editCaseForm : c));
+    const updated = caseStudies.map(c => c.id === editCaseForm.id ? editCaseForm : c);
+    setCaseStudies(updated);
+    savePortfolioDataToServer({ caseStudies: updated });
     alert(isArabic ? 'تم حفظ حالة الدراسة بنجاح!' : 'Case Study saved successfully!');
   };
 
@@ -1108,6 +1155,7 @@ export default function App() {
     if (confirm(isArabic ? 'هل تريد حذف حالة الدراسة هذه؟' : 'Are you sure you want to delete this case study?')) {
       const remaining = caseStudies.filter(c => c.id !== id);
       setCaseStudies(remaining);
+      savePortfolioDataToServer({ caseStudies: remaining });
       setSelectedAdminCaseId(remaining[0].id);
     }
   };
@@ -1142,14 +1190,18 @@ export default function App() {
         }
       ]
     };
-    setPdfCaseStudies(prev => [...prev, newPdf]);
+    const updated = [...pdfCaseStudies, newPdf];
+    setPdfCaseStudies(updated);
+    savePortfolioDataToServer({ pdfCaseStudies: updated });
     setSelectedAdminPdfId(newId);
     setSelectedAdminPageNum(1);
   };
 
   const handleSavePdfFileMetadata = () => {
     if (!editPdfForm) return;
-    setPdfCaseStudies(prev => prev.map(p => p.id === editPdfForm.id ? editPdfForm : p));
+    const updated = pdfCaseStudies.map(p => p.id === editPdfForm.id ? editPdfForm : p);
+    setPdfCaseStudies(updated);
+    savePortfolioDataToServer({ pdfCaseStudies: updated });
     alert(isArabic ? 'تم حفظ معلومات الكلاندر الأساسية بنجاح!' : 'Calendar metadata saved successfully!');
   };
 
@@ -1161,6 +1213,7 @@ export default function App() {
     if (confirm(isArabic ? 'هل تريد حذف مخطط المحتوى هذا بالكامل؟' : 'Are you sure you want to delete this content calendar?')) {
       const remaining = pdfCaseStudies.filter(p => p.id !== id);
       setPdfCaseStudies(remaining);
+      savePortfolioDataToServer({ pdfCaseStudies: remaining });
       setSelectedAdminPdfId(remaining[0].id);
     }
   };
@@ -1168,6 +1221,7 @@ export default function App() {
   const handleSaveSpreadsheetRows = (rowsData: any[]) => {
     if (selectedAdminPdfId === 'pdf-amira' && selectedAdminPageNum === 1) {
       setAmiraSheetRows(rowsData);
+      savePortfolioDataToServer({ amiraSheetRows: rowsData });
     } else {
       const sections = rowsData.map(r => ({
         titleAr: r.hookAr || r.titleAr || '',
@@ -1186,7 +1240,7 @@ export default function App() {
         storyEn: r.storyEn
       }));
       
-      setPdfCaseStudies(prev => prev.map(pdf => {
+      const updated = pdfCaseStudies.map(pdf => {
         if (pdf.id === selectedAdminPdfId) {
           const pages = pdf.pages.map(p => {
             if (p.pageNum === selectedAdminPageNum) {
@@ -1197,12 +1251,14 @@ export default function App() {
           return { ...pdf, pages };
         }
         return pdf;
-      }));
+      });
+      setPdfCaseStudies(updated);
+      savePortfolioDataToServer({ pdfCaseStudies: updated });
     }
     alert(isArabic ? 'تم حفظ خلايا جدول الكلاندر بنجاح!' : 'Spreadsheet rows saved successfully!');
   };
 
-  const handleAddManualInquiry = () => {
+  const handleAddManualInquiry = async () => {
     const manualBrand = prompt(isArabic ? 'أدخل اسم البراند/المشروع الجديد:' : 'Enter new Brand/Project name:');
     if (!manualBrand) return;
     const newInq = {
@@ -1215,6 +1271,18 @@ export default function App() {
       notes: isArabic ? 'تمت إضافتها يدوياً من لوحة التحكم' : 'Added manually via admin panel'
     };
     setInquiries(prev => [newInq, ...prev]);
+
+    try {
+      await fetch('/api/inquiries', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(newInq),
+      });
+    } catch (err) {
+      console.error("Failed to save manual inquiry to server", err);
+    }
   };
 
   const [activeCaseId, setActiveCaseId] = useState<string>('case-realestate');
@@ -1229,7 +1297,7 @@ export default function App() {
   const [isFormSubmitted, setIsFormSubmitted] = useState<boolean>(false);
   const [copiedTemplate, setCopiedTemplate] = useState<boolean>(false);
 
-  const handleSubmitInquiry = () => {
+  const handleSubmitInquiry = async () => {
     setIsFormSubmitted(true);
     if (!clientBrand.trim()) return;
 
@@ -1248,6 +1316,18 @@ export default function App() {
     };
 
     setInquiries(prev => [newInquiry, ...prev]);
+
+    try {
+      await fetch('/api/inquiries', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(newInquiry),
+      });
+    } catch (err) {
+      console.error("Failed to submit inquiry to server", err);
+    }
   };
 
   // PDF Interactive Viewer State
@@ -2999,6 +3079,7 @@ We are looking forward to discussing how your expertise in social selling and co
                         <button
                           onClick={() => {
                             setAdminBio(editBioForm);
+                            savePortfolioDataToServer({ adminBio: editBioForm });
                             alert(isArabic ? 'تم حفظ السيرة الذاتية بنجاح!' : 'Biography updated successfully!');
                           }}
                           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
@@ -3012,6 +3093,7 @@ We are looking forward to discussing how your expertise in social selling and co
                         <button
                           onClick={() => {
                             setAdminBio(editBioForm);
+                            savePortfolioDataToServer({ adminBio: editBioForm });
                             const serialized = serializeBio(editBioForm);
                             const shareUrl = `${window.location.origin}${window.location.pathname}?p=${serialized}`;
                             navigator.clipboard.writeText(shareUrl).then(() => {
@@ -3955,6 +4037,21 @@ We are looking forward to discussing how your expertise in social selling and co
                               isLight ? 'bg-white border-stone-200 text-[#2E1D16]' : 'bg-[#1c1c1b] border-[#222] text-white'
                             }`}
                           />
+                        </div>
+
+                        <div className="md:col-span-2 pt-2 flex justify-end">
+                          <button
+                            onClick={() => {
+                              savePortfolioDataToServer({ realWorkSection });
+                              alert(isArabic ? 'تم حفظ إعدادات القسم والمساحة بنجاح!' : 'Drive section and storage settings saved successfully!');
+                            }}
+                            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+                              isLight ? 'bg-[#8E4F39] text-white hover:bg-[#72321D]' : 'bg-[#D4AF37] text-black hover:bg-[#C29D2C]'
+                            }`}
+                          >
+                            <Save className="w-3.5 h-3.5" />
+                            <span>{isArabic ? 'حفظ إعدادات العناوين' : 'Save Section Headings'}</span>
+                          </button>
                         </div>
                       </div>
                     </div>
